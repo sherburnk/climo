@@ -6,6 +6,19 @@ import urllib.request
 from datetime import datetime, timedelta
 import climoplots_config as cf
 import pandas as pd
+import pytz
+
+def get_local_now(state_code):
+    # Mapping states to primary timezones (Simplified)
+    tz_map = {
+        "HI": "Pacific/Honolulu", "AK": "America/Anchorage",
+        "CA": "America/Los_Angeles", "OR": "America/Los_Angeles", "WA": "America/Los_Angeles", "NV": "America/Los_Angeles",
+        "AZ": "America/Phoenix", "MT": "America/Denver", "ID": "America/Denver", "WY": "America/Denver", "CO": "America/Denver", "UT": "America/Denver", "NM": "America/Denver",
+        "TX": "America/Chicago", "OK": "America/Chicago", "KS": "America/Chicago", "NE": "America/Chicago", "SD": "America/Chicago", "ND": "America/Chicago", "MN": "America/Chicago", "IA": "America/Chicago", "MO": "America/Chicago", "AR": "America/Chicago", "LA": "America/Chicago", "WI": "America/Chicago", "IL": "America/Chicago", "MS": "America/Chicago", "AL": "America/Chicago",
+        "FL": "America/New_York", "GA": "America/New_York", "SC": "America/New_York", "NC": "America/New_York", "VA": "America/New_York", "WV": "America/New_York", "KY": "America/New_York", "TN": "America/New_York", "OH": "America/New_York", "MI": "America/New_York", "IN": "America/New_York", "PA": "America/New_York", "NY": "America/New_York", "NJ": "America/New_York", "CT": "America/New_York", "RI": "America/New_York", "MA": "America/New_York", "VT": "America/New_York", "NH": "America/New_York", "ME": "America/New_York", "MD": "America/New_York", "DE": "America/New_York", "DC": "America/New_York"
+    }
+    tz_name = tz_map.get(state_code, "UTC")
+    return datetime.now(pytz.timezone(tz_name))
 
 # List of US States
 US_STATES = ["AK", "AL", "AR", "AZ", "CA", "CO", "CT", "DC", "DE", "FL", "GA", 
@@ -169,7 +182,7 @@ def get_style(val, var_key, mode, is_new, is_target):
     else: cmap, norm = (cf.tcmap, mcolors.Normalize(-60,120)) if any(x in var_key for x in ['tmp', 'avg', 'maxt', 'mint', 'max', 'min']) else (cf.bugncmap, mcolors.Normalize(0,2)) if 'pcp' in var_key else (cf.pubucmap, mcolors.Normalize(0,12))
     rgba = cmap(norm(val)); style = f"background-color: {mcolors.to_hex(rgba)};"
     if is_new: style += " border: 3px solid black; font-weight: 900;"
-    elif is_target: style += " outline: 4px solid yellow; z-index: 5; position: relative;"
+    elif is_target: style += " outline: 3px solid yellow; z-index: 5; position: relative;"
     if not is_new: style += f" color: {'white' if (0.299*rgba[0] + 0.587*rgba[1] + 0.114*rgba[2]) < 0.45 else 'black'};"
     return style
 
@@ -239,8 +252,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### Legend")
 
 # Yellow highlight applies to everything except "Normals"
-if mode != "Normals":
-    st.sidebar.markdown("🟨 **Yellow Outline**: Current / Target Day")
+st.sidebar.markdown("🟨 **Yellow Outline**: Current / Target Day")
 
 # Black highlight applies only to Daily Records
 if mode == "Daily Records":
