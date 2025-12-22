@@ -8,8 +8,10 @@ import climoplots_config as cf
 import pandas as pd
 import pytz
 
+# --- TIMEZONE UTILITY ---
+
 def get_local_now(state_code):
-    # Mapping states to primary timezones (Simplified)
+    """Returns current datetime localized to the selected state."""
     tz_map = {
         "HI": "Pacific/Honolulu", "AK": "America/Anchorage",
         "CA": "America/Los_Angeles", "OR": "America/Los_Angeles", "WA": "America/Los_Angeles", "NV": "America/Los_Angeles",
@@ -39,52 +41,29 @@ def query_acis(params, endpoint="StnData"):
         return json.loads(response.read())
 
 def get_stations_by_state(state_code):
-    """Retrieves ONLY ThreadEx and ICAO stations, sorted accordingly."""
-    params = {
-        "state": state_code, 
-        "meta": "name,sids,ll,state,valid_daterange",
-        "elems": "maxt" # Anchor for valid_daterange
-    }
+    params = {"state": state_code, "meta": "name,sids,ll,state,valid_daterange", "elems": "maxt"}
     data = query_acis(params, endpoint="StnMeta")
-    
     threadex, icao = [], []
     if 'meta' in data:
         for m in data['meta']:
             sids = m.get('sids', [])
             thr_sid = next((s.split()[0] for s in sids if s.endswith(' 9') or 'thr' in s.lower()), None)
             icao_sid = next((s.split()[0] for s in sids if s.endswith(' 5') or (len(s.split()[0]) == 4 and s.split()[0].isalpha())), None)
-            
-            if not thr_sid and not icao_sid:
-                continue
-
+            if not thr_sid and not icao_sid: continue
             lat, lon = (m['ll'][1], m['ll'][0]) if 'll' in m else (0.0, 0.0)
             if lat is None: continue
-
             por_str = "Unknown"
             vdr = m.get('valid_daterange', [])
             try:
                 if vdr and isinstance(vdr, list) and len(vdr) > 0:
                     dates = vdr[0][0]
-                    if len(dates) >= 2:
-                        por_str = f"{dates.split('-')[0]}"
-            except:
-                por_str = "Unknown"
-
-            entry = {
-                "name": m['name'], 
-                "lat": lat, 
-                "lon": lon, 
-                "por_display": por_str,
-                "sid": thr_sid if thr_sid else icao_sid,
-                "type": "ThreadEx" if thr_sid else "ICAO"
-            }
-            
+                    if len(dates) >= 2: por_str = f"{dates.split('-')[0]}"
+            except: por_str = "Unknown"
+            entry = {"name": m['name'], "lat": lat, "lon": lon, "por_display": por_str, "sid": thr_sid if thr_sid else icao_sid, "type": "ThreadEx" if thr_sid else "ICAO"}
             if thr_sid: threadex.append(entry)
             else: icao.append(entry)
-                
     full_list = sorted(threadex, key=lambda x: x['name']) + sorted(icao, key=lambda x: x['name'])
     if not full_list: return pd.DataFrame()
-    
     df = pd.DataFrame(full_list)
     df['display_name'] = df.apply(lambda x: f"{x['name']} ({x['sid']})", axis=1)
     return df
@@ -93,21 +72,14 @@ def get_stations_by_state(state_code):
 
 def get_sidebar_summary(sid, mode, target_date):
     date_str = target_date.strftime("%Y%m%d")
-    
     if mode == "Daily Records": 
-        config = cf.elems_rec
-        elems = ["maxt", "mint", "pcpn", "snow", "avgt"]
+        config, elems = cf.elems_rec, ["maxt", "mint", "pcpn", "snow", "avgt"]
     elif mode == "Normals": 
-        config = cf.elems_avg
-        # Requesting normals specifically
-        elems = [{"name": e['aname'], "normal": "1"} for e in cf.elems_avg.values()]
+        config, elems = cf.elems_avg, [{"name": e['aname'], "normal": "1"} for e in cf.elems_avg.values()]
     elif mode == "YTD Observations": 
-        config = cf.elems_ytd
-        # Requesting standard observations (no "normal" key)
-        elems = [{"name": e['aname']} for e in cf.elems_ytd.values()]
+        config, elems = cf.elems_ytd, [{"name": e['aname']} for e in cf.elems_ytd.values()]
     else: 
-        config = cf.elems_dep
-        elems = [{"name": e['aname'], "normal": "departure"} for e in cf.elems_dep.values()]
+        config, elems = cf.elems_dep, [{"name": e['aname'], "normal": "departure"} for e in cf.elems_dep.values()]
 
     data = query_acis({"sid": sid, "sdate": date_str, "edate": date_str, "elems": elems})
     summary = []
@@ -115,7 +87,6 @@ def get_sidebar_summary(sid, mode, target_date):
         row = data['data'][0]
         por_params = {"sid": sid, "sdate": "por", "edate": "por", "elems": ["maxt", "mint", "pcpn", "snow", "avgt"]}
         por_data = query_acis(por_params) if mode == "Daily Records" else None
-        
         for i, (key, info) in enumerate(config.items()):
             if mode == "Daily Records" and por_data:
                 val_idx = info['val']
@@ -133,25 +104,21 @@ def get_sidebar_summary(sid, mode, target_date):
                 except: continue
     return summary
 
-def get_data_grids(sid, var_key, mode):
-    now, cur_year = datetime.now(), datetime.now().year
-    
+def get_data_grids(sid, var_key, mode, local_now):
+    cur_year = local_now.year
     if mode == "Daily Records":
-        elem = cf.elems_rec[var_key]
-        params = {"sid": sid, "sdate": "por", "edate": "por", "elems": ["maxt", "mint", "pcpn", "snow", "avgt"]}
+        elem = cf.elems_rec[var_key]; params = {"sid": sid, "sdate": "por", "edate": "por", "elems": ["maxt", "mint", "pcpn", "snow", "avgt"]}
         idx, is_high = elem['val'], var_key in ['maxtmp', 'hmntmp', 'maxpcp', 'maxsnw', 'maxavg']
     elif mode == "Normals":
-        elem = cf.elems_avg[var_key]
-        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": f"{cur_year}1231", "elems": [{"name": elem['aname'], "interval": "dly", "normal": "1"}]}
+        elem = cf.elems_avg[var_key]; params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": f"{cur_year}1231", "elems": [{"name": elem['aname'], "interval": "dly", "normal": "1"}]}
         idx, is_high = 1, True
     elif mode == "YTD Observations":
         elem = cf.elems_ytd[var_key]
-        # Ensure ONLY the name is passed, no 'normal' key
-        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": now.strftime("%Y%m%d"), "elems": [{"name": elem['aname'], "interval": "dly"}]}
+        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": local_now.strftime("%Y%m%d"), "elems": [{"name": elem['aname'], "interval": "dly"}]}
         idx, is_high = 1, True
     else: # Departures
         elem = cf.elems_dep[var_key]
-        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": now.strftime("%Y%m%d"), "elems": [{"name": elem['aname'], "interval": "dly", "normal": "departure"}]}
+        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": local_now.strftime("%Y%m%d"), "elems": [{"name": elem['aname'], "interval": "dly", "normal": "departure"}]}
         idx, is_high = 1, True
 
     data = query_acis(params)
@@ -186,9 +153,9 @@ def get_style(val, var_key, mode, is_new, is_target):
     if not is_new: style += f" color: {'white' if (0.299*rgba[0] + 0.587*rgba[1] + 0.114*rgba[2]) < 0.45 else 'black'};"
     return style
 
-def render_html_table(v_grid, i_grid, n_grid, var_key, mode):
+def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    now, yest = datetime.now(), datetime.now() - timedelta(days=1)
+    yest = local_now - timedelta(days=1)
     is_temp = any(x in var_key for x in ['tmp', 'avg', 'maxt', 'mint', 'max', 'min'])
     is_snow = 'snw' in var_key or 'snd' in var_key
     html = "<style>.climo-table { width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; color: black; } .climo-table th, .climo-table td { border: 1px solid #ccc; text-align: center; padding: 4px 0; font-weight: bold; } .climo-table th:not(.label-col) { width: 7.7%; } .climo-table thead th {background-color: #ddd !important;} .climo-table td:hover { outline: 3px solid #00ffff; z-index: 10; cursor: help; } .label-col { width: 60px; background-color: #ddd !important; } .summary-row { background-color: #eee; border-top: 2px solid black; }</style><table class='climo-table'><thead><tr><th class='label-col'>Day</th>" + "".join(f"<th>{m}</th>" for m in months) + "</tr></thead><tbody>"
@@ -197,7 +164,7 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode):
         for m in range(12):
             val = v_grid[d][m]
             if val in [999.0, -999.0]: html += "<td>-</td>"; continue
-            is_target = (d == yest.day-1 and m == yest.month-1) if mode in ["YTD Observations", "Departures"] else (d == now.day-1 and m == now.month-1)
+            is_target = (d == yest.day-1 and m == yest.month-1) if mode in ["YTD Observations", "Departures"] else (d == local_now.day-1 and m == local_now.month-1)
             disp = "Trace" if val == 0.001 else (f"{int(round(val))}" if is_temp else f"{val:.1f}" if is_snow else f"{val:.2f}")
             html += f"<td title='{i_grid[d][m]}' style='{get_style(val, var_key, mode, n_grid[d][m], is_target)}'>{disp}</td>"
         html += "</tr>"
@@ -206,30 +173,8 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode):
 # --- UI ---
 
 st.set_page_config(page_title="NWS Climate Hub", layout="wide", initial_sidebar_state="expanded")
-# This CSS targets the spacing between the sidebar widgets
-st.markdown(
-    """
-    <style>
-        /* Adjust the sidebar width */
-        [data-testid="stSidebar"] {
-            min-width: 450px;
-            max-width: 450px;
-        }
-        
-        /* Reduce spacing between widgets in the sidebar */
-        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-            gap: 0.5rem; /* Default is usually 1rem; adjust this lower as needed */
-        }
-        
-        /* Optional: Specifically reduce space after the horizontal rules (---) */
-        [data-testid="stSidebar"] hr {
-            margin-top: 10px;
-            margin-bottom: 10px;
-        }
-    </style>
-    """, 
-    unsafe_allow_html=True
-)
+st.markdown("""<style>[data-testid="stSidebar"] { min-width: 450px; max-width: 450px; } [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.5rem; } [data-testid="stSidebar"] hr { margin-top: 10px; margin-bottom: 10px; }</style>""", unsafe_allow_html=True)
+
 st.sidebar.header("Step 1: Select State")
 state_sel = st.sidebar.selectbox("State", US_STATES, index=US_STATES.index("IL"))
 
@@ -244,38 +189,24 @@ if not df_stations.empty:
 else:
     st.sidebar.error("No valid ThreadEx or ICAO sites found."); st.stop()
 
-# --- REFACTORED CATEGORY & ELEMENT SELECTION ---
 mode = st.sidebar.radio("Category", ["Daily Records", "Normals", "YTD Observations", "Departures"])
-
-# --- SIDEBAR LEGEND ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Legend")
-
-# Yellow highlight applies to everything except "Normals"
 st.sidebar.markdown("🟨 **Yellow Outline**: Current / Target Day")
-
-# Black highlight applies only to Daily Records
-if mode == "Daily Records":
-    st.sidebar.markdown("⬛ **Black Border**: Record set/tied this year")
-    
+if mode == "Daily Records": st.sidebar.markdown("⬛ **Black Border**: Record set/tied this year")
 st.sidebar.markdown("---")
 
-# Get the corresponding element set from config
-elem_dict = {
-    "Daily Records": cf.elems_rec, 
-    "Normals": cf.elems_avg, 
-    "YTD Observations": cf.elems_ytd, 
-    "Departures": cf.elems_dep
-}[mode]
-
-# Map friendly titles to keys for internal use
+elem_dict = {"Daily Records": cf.elems_rec, "Normals": cf.elems_avg, "YTD Observations": cf.elems_ytd, "Departures": cf.elems_dep}[mode]
 friendly_map = {info['title']: key for key, info in elem_dict.items()}
 selected_friendly = st.sidebar.selectbox("Climate Element", list(friendly_map.keys()))
 var_key = friendly_map[selected_friendly]
 
 with st.spinner("Processing..."):
-    now, yest = datetime.now(), datetime.now() - timedelta(days=1)
-    target_dt = yest if mode in ["YTD Observations", "Departures"] else now
+    # GET LOCAL TIME FOR CALCULATIONS
+    local_now = get_local_now(state_sel)
+    yesterday = local_now - timedelta(days=1)
+    
+    target_dt = yesterday if mode in ["YTD Observations", "Departures"] else local_now
     summary = get_sidebar_summary(sid, mode, target_dt)
     
     st.sidebar.markdown(f"--- \n## {'Yesterday' if mode in ['YTD Observations', 'Departures'] else 'Today'} ({target_dt.strftime('%b %d')})")
@@ -286,8 +217,7 @@ with st.spinner("Processing..."):
             val_s = f"{itm['val']:.1f}" if "snow" in itm['label'].lower() else f"{itm['val']:.2f}" if "precip" in itm['label'].lower() else f"{int(round(itm['val']))}"
         st.sidebar.markdown(f"<div style='white-space: nowrap;'><b>{itm['label']}:</b> {val_s}{u}{' ('+itm['year']+')' if itm.get('year') else ''}</div>", unsafe_allow_html=True)
 
-    v, i, n = get_data_grids(sid, var_key, mode)
+    v, i, n = get_data_grids(sid, var_key, mode, local_now)
     if v is not None:
-        # Using selected_friendly here ensures the page title is also "readable"
         st.subheader(f"{selected_friendly} — {selected_site['name']} (records since {selected_site['por_display']})")
-        st.markdown(render_html_table(v, i, n, var_key, mode), unsafe_allow_html=True)
+        st.markdown(render_html_table(v, i, n, var_key, mode, local_now), unsafe_allow_html=True)
