@@ -224,3 +224,6 @@ with st.spinner("Processing..."):
         else:
             st.subheader(f"{selected_friendly} — {selected_site['name']}")
         st.markdown(render_html_table(v, i, n, var_key, mode, local_now), unsafe_allow_html=True)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("Data courtesy of the Applied Climate Information System (ACIS)")
