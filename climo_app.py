@@ -80,11 +80,21 @@ def get_stations_by_state(state_code):
 
 def get_sidebar_summary(sid, mode, target_date):
     date_str = target_date.strftime("%Y%m%d")
-    elems = ["maxt", "mint", "pcpn", "snow", "avgt"]
-    if mode == "Daily Records": config = cf.elems_rec
-    elif mode == "Normals": config, elems = cf.elems_avg, [{"name": e['aname'], "normal": "1"} for e in cf.elems_avg.values()]
-    elif mode == "YTD Observations": config, elems = cf.elems_ytd, [e['aname'] for e in cf.elems_ytd.values()]
-    else: config, elems = cf.elems_dep, [{"name": e['aname'], "normal": "departure"} for e in cf.elems_dep.values()]
+    
+    if mode == "Daily Records": 
+        config = cf.elems_rec
+        elems = ["maxt", "mint", "pcpn", "snow", "avgt"]
+    elif mode == "Normals": 
+        config = cf.elems_avg
+        # Requesting normals specifically
+        elems = [{"name": e['aname'], "normal": "1"} for e in cf.elems_avg.values()]
+    elif mode == "YTD Observations": 
+        config = cf.elems_ytd
+        # Requesting standard observations (no "normal" key)
+        elems = [{"name": e['aname']} for e in cf.elems_ytd.values()]
+    else: 
+        config = cf.elems_dep
+        elems = [{"name": e['aname'], "normal": "departure"} for e in cf.elems_dep.values()]
 
     data = query_acis({"sid": sid, "sdate": date_str, "edate": date_str, "elems": elems})
     summary = []
@@ -112,16 +122,23 @@ def get_sidebar_summary(sid, mode, target_date):
 
 def get_data_grids(sid, var_key, mode):
     now, cur_year = datetime.now(), datetime.now().year
+    
     if mode == "Daily Records":
-        elem = cf.elems_rec[var_key]; params = {"sid": sid, "sdate": "por", "edate": "por", "elems": ["maxt", "mint", "pcpn", "snow", "avgt"]}
+        elem = cf.elems_rec[var_key]
+        params = {"sid": sid, "sdate": "por", "edate": "por", "elems": ["maxt", "mint", "pcpn", "snow", "avgt"]}
         idx, is_high = elem['val'], var_key in ['maxtmp', 'hmntmp', 'maxpcp', 'maxsnw', 'maxavg']
     elif mode == "Normals":
-        elem = cf.elems_avg[var_key]; params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": f"{cur_year}1231", "elems": [{"name": elem['aname'], "interval": "dly", "normal": "1"}]}
+        elem = cf.elems_avg[var_key]
+        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": f"{cur_year}1231", "elems": [{"name": elem['aname'], "interval": "dly", "normal": "1"}]}
         idx, is_high = 1, True
-    else:
-        elem = cf.elems_ytd[var_key] if mode == "YTD Observations" else cf.elems_dep[var_key]
-        p_elem = {"name": elem['aname'], "interval": "dly"}; p_elem["normal"] = "departure" if mode == "Departures" else None
-        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": now.strftime("%Y%m%d"), "elems": [p_elem]}
+    elif mode == "YTD Observations":
+        elem = cf.elems_ytd[var_key]
+        # Ensure ONLY the name is passed, no 'normal' key
+        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": now.strftime("%Y%m%d"), "elems": [{"name": elem['aname'], "interval": "dly"}]}
+        idx, is_high = 1, True
+    else: # Departures
+        elem = cf.elems_dep[var_key]
+        params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": now.strftime("%Y%m%d"), "elems": [{"name": elem['aname'], "interval": "dly", "normal": "departure"}]}
         idx, is_high = 1, True
 
     data = query_acis(params)
