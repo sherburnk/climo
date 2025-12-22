@@ -219,5 +219,8 @@ with st.spinner("Processing..."):
 
     v, i, n = get_data_grids(sid, var_key, mode, local_now)
     if v is not None:
-        st.subheader(f"{selected_friendly} — {selected_site['name']} (records since {selected_site['por_display']})")
+        if mode in ["Daily Records"]:
+            st.subheader(f"{selected_friendly} — {selected_site['name']} (records since {selected_site['por_display']})")
+        else:
+            st.subheader(f"{selected_friendly} — {selected_site['name']}")
         st.markdown(render_html_table(v, i, n, var_key, mode, local_now), unsafe_allow_html=True)
