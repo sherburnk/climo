@@ -173,7 +173,7 @@ def get_style(val, var_key, mode, is_new, is_target, v_grid):
     style = f"background-color: {mcolors.to_hex(rgba)};"
     if is_new: 
         if ('snw' in vk and val > 0.0) or 'snw' not in vk:
-            style += " text-decoration: underline; font-weight: 900; font-size: 1.1em; border: 2px solid black;"
+            style += " text-decoration: underline; font-weight: 900; font-size: 1.2em; border: 3px solid black;"
     elif is_target: 
         style += " outline: 3px solid yellow; z-index: 5; position: relative;"
     lum = (0.299*rgba[0] + 0.587*rgba[1] + 0.114*rgba[2])
@@ -203,7 +203,7 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
             min-width: 900px; 
             border-collapse: separate; 
             border-spacing: 0; 
-            font-size: 15px; 
+            font-size: 18px; 
             table-layout: fixed; 
             color: black;
         }
