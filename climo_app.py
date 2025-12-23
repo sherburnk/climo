@@ -65,36 +65,90 @@ def get_stations_by_state(state_code):
 # --- DATA FETCHING ---
 def get_sidebar_summary(sid, mode, target_date):
     date_str = target_date.strftime("%Y%m%d")
-    if mode == "Daily Records": 
-        config, elems = cf.elems_rec, ["maxt", "mint", "pcpn", "snow", "avgt"]
-    elif mode == "Normals": 
-        config, elems = cf.elems_avg, [{"name": e['aname'], "normal": "1"} for e in cf.elems_avg.values()]
-    elif mode == "YTD Observations": 
-        config, elems = cf.elems_ytd, [{"name": e['aname']} for e in cf.elems_ytd.values()]
-    else: 
-        config, elems = cf.elems_dep, [{"name": e['aname'], "normal": "departure"} for e in cf.elems_dep.values()]
-
-    data = query_acis({"sid": sid, "sdate": date_str, "edate": date_str, "elems": elems})
+    jan_1st = target_date.strftime("%Y0101")
     summary = []
-    if 'data' in data and data['data']:
-        row = data['data'][0]
+
+    # --- 1. DAILY RECORDS (POR) ---
+    if mode == "Daily Records":
+        config = cf.elems_rec
         por_params = {"sid": sid, "sdate": "por", "edate": "por", "elems": ["maxt", "mint", "pcpn", "snow", "avgt"]}
-        por_data = query_acis(por_params) if mode == "Daily Records" else None
-        for i, (key, info) in enumerate(config.items()):
-            if mode == "Daily Records" and por_data:
+        por_data = query_acis(por_params)
+        
+        if 'data' in por_data:
+            target_mmdd = target_date.strftime("%m-%d")
+            for i, (key, info) in enumerate(config.items()):
                 val_idx = info['val']
                 is_high = key in ['maxtmp', 'hmntmp', 'maxpcp', 'maxsnw', 'maxavg']
-                day_records = [r for r in por_data['data'] if r[0][5:] == target_date.strftime("%m-%d")]
-                vals = [(float(r[val_idx]) if r[val_idx] != "T" else 0.001, r[0][:4]) for r in day_records if r[val_idx] not in ["M", "S", "A"] and "A" not in str(r[val_idx])]
+                day_records = [r for r in por_data['data'] if r[0][5:] == target_mmdd]
+                vals = []
+                for r in day_records:
+                    raw_v = r[val_idx]
+                    if raw_v not in ["M", "S", "A"] and "A" not in str(raw_v):
+                        v = 0.001 if raw_v == "T" else float(raw_v)
+                        vals.append((v, r[0][:4]))
                 if vals:
                     v, yr = max(vals) if is_high else min(vals)
                     summary.append({"label": info['title'], "val": v, "year": yr, "unit": info['unit']})
+        return summary
+
+    # --- 2. YTD OBSERVATIONS (Correct Summation) ---
+    elif mode == "YTD Observations":
+        config = cf.elems_ytd
+        for key, info in config.items():
+            aname = info['aname'].lower()
+            
+            # Use 'sum' reduction for precip and snow over the date range
+            if 'pcpn' in aname or 'snow' in aname:
+                p = {
+                    "sid": sid, 
+                    "sdate": date_str, 
+                    "edate": date_str, 
+                    "elems": [{"name": info['aname'], "duration": "ytd", "reduce": "sum"}]
+                }
             else:
+                # Use current day value for temperatures
+                p = {
+                    "sid": sid, 
+                    "sdate": date_str, 
+                    "edate": date_str, 
+                    "elems": [{"name": info['aname']}]
+                }
+            
+            res = query_acis(p)
+            
+            print(res['data'])
+            # ACIS range queries with reduction return the sum in the first (and only) row
+            if 'data' in res and len(res['data']) > 0:
+                val = res['data'][0][1] 
+                if val not in ["M", "S", "A"]:
+                    summary.append({
+                        "label": info['title'], 
+                        "val": float(val) if val != "T" else 0.001, 
+                        "unit": info.get('unit', 'degrees')
+                    })
+        return summary
+
+    # --- 3. NORMALS & DEPARTURES ---
+    else:
+        if mode == "Normals":
+            config, elems = cf.elems_avg, [{"name": e['aname'], "normal": "1"} for e in cf.elems_avg.values()]
+        else: # Departures
+            config, elems = cf.elems_dep, [{"name": e['aname'], "normal": "departure"} for e in cf.elems_dep.values()]
+        
+        data = query_acis({"sid": sid, "sdate": date_str, "edate": date_str, "elems": elems})
+        if 'data' in data and data['data']:
+            row = data['data'][0]
+            for i, (key, info) in enumerate(config.items()):
                 try:
                     val = row[i+1]
                     if val not in ["M", "S", "A"]:
-                        summary.append({"label": info['title'], "val": float(val) if val != "T" else 0.001, "unit": info.get('unit', 'degrees')})
+                        summary.append({
+                            "label": info['title'], 
+                            "val": float(val) if val != "T" else 0.001, 
+                            "unit": info.get('unit', 'degrees')
+                        })
                 except: continue
+                
     return summary
 
 def get_data_grids(sid, var_key, mode, local_now):
