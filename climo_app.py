@@ -138,7 +138,7 @@ def get_style(val, var_key, mode, is_new, is_target):
         else: cmap, norm = cf.tcmap, mcolors.Normalize(-20, 110)
     rgba = cmap(norm(val))
     style = f"background-color: {mcolors.to_hex(rgba)};"
-    if is_new: style += " border: 2px solid black; font-weight: 900;"
+    if is_new: style += " border: 3px solid black; font-weight: 900;"
     elif is_target: style += " outline: 3px solid yellow; outline-offset: -3px; z-index: 5;"
     lum = (0.299*rgba[0] + 0.587*rgba[1] + 0.114*rgba[2])
     style += f" color: {'white' if lum < 0.4 else 'black'};"
@@ -154,10 +154,24 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
     html = """
     <style>
         .scroll-container { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; position: relative; }
-        .climo-table { min-width: 900px; width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; }
-        .climo-table th, .climo-table td { border: 1px solid #ccc; text-align: center; padding: 10px 2px; font-weight: bold; }
-        .sticky-col { position: sticky; left: 0; background-color: #ddd !important; z-index: 2; width: 45px; border-right: 2px solid #666 !important; color: black; }
-        .climo-table thead th { background-color: #ddd !important; color: black; }
+        .climo-table { min-width: 900px; width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; text-align: center; font-weight: bold; }
+        
+        /* Tooltip behavior */
+        .climo-table td:hover { 
+            outline: 2px solid #000; 
+            cursor: help; 
+            filter: brightness(90%);
+        }
+
+        .climo-table th, .climo-table td.sticky-col { 
+            border: 1px solid #ccc; 
+            text-align: center; 
+            padding: 10px 2px; 
+            font-weight: bold; 
+            color: black !important; 
+        }
+        .sticky-col { position: sticky; left: 0; background-color: #eee !important; z-index: 10; width: 45px; border-right: 2px solid #666 !important; }
+        .climo-table thead th { background-color: #ddd !important; color: black !important; }
     </style>
     <div class="scroll-container">
     <table class='climo-table'><thead><tr><th class='sticky-col'>Day</th>""" + "".join(f"<th>{m}</th>" for m in months) + "</tr></thead><tbody>"
@@ -167,10 +181,29 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
         html += f"<tr><td class='sticky-col'>{'Sum' if is_sum else d+1}</td>"
         for m in range(12):
             val = v_grid[d][m]
-            if val in [999.0, -999.0]: html += "<td>-</td>"; continue
+            if val in [999.0, -999.0]: 
+                html += "<td>-</td>"
+                continue
+                
             is_target = (d == yest.day-1 and m == yest.month-1) if mode != "Daily Records" else (d == local_now.day-1 and m == local_now.month-1)
-            disp = "T" if val == 0.001 else (f"{val:.2f}" if is_precip else (f"{val:.1f}" if is_snow else f"{int(round(val))}"))
-            html += f"<td style='{get_style(val, var_key, mode, n_grid[d][m], is_target)}'>{disp}</td>"
+            
+            # FORMAT DISPLAY VALUE
+            if val == 0.001:
+                disp = "T"
+            elif is_precip:
+                disp = f"{val:.2f}"
+            elif is_snow:
+                disp = f"{val:.1f}"
+            else:
+                disp = f"{int(round(val))}"
+            
+            # TOOLTIP TEXT (Year or Date)
+            # We pull this from i_grid which was populated in get_data_grids
+            tooltip_info = str(i_grid[d][m]) 
+            
+            # Add the 'title' attribute for the hover functionality
+            html += f"<td title='{tooltip_info}' style='{get_style(val, var_key, mode, n_grid[d][m], is_target)}'>{disp}</td>"
+            
         html += "</tr>"
     return html + "</table></div>"
 
