@@ -152,17 +152,14 @@ def get_style(val, var_key, mode, is_new, is_target, v_grid):
             
     # 2. Handle Observations/Records/Normals - Use Greens and Blues
     else:
-        # Dynamic max for color scaling (ignores null placeholders)
-        grid_max = np.max(v_grid[v_grid < 900]) if np.any(v_grid < 900) else 1.0
-        
         if 'pcp' in vk:
             # Sequential Green for Precipitation
-            cmap = plt.get_cmap('Greens')
-            norm = mcolors.Normalize(0, max(0.5, grid_max)) # min 0.5 to prevent washout
+            cmap, norm = cf.qacmap, mcolors.Normalize(0, 50.0)
+            #norm = mcolors.Normalize(0, 2.0) # min 0.5 to prevent washout
         elif 'snw' in vk:
             # Sequential Blue for Snow
-            cmap = plt.get_cmap('Blues')
-            norm = mcolors.Normalize(0, max(2.0, grid_max)) # min 2.0 to prevent washout
+            cmap, norm = cf.sacmap, mcolors.Normalize(0, 120.0)
+            #norm = mcolors.Normalize(0, 6.0) # min 2.0 to prevent washout
         else:
             # Standard Temperature Map
             cmap, norm = cf.tcmap, mcolors.Normalize(-60, 120)
@@ -171,7 +168,8 @@ def get_style(val, var_key, mode, is_new, is_target, v_grid):
     style = f"background-color: {mcolors.to_hex(rgba)};"
     
     if is_new: 
-        style += " border: 3px solid black; font-weight: 900;"
+        if ('snw' in vk and val > 0.0) or 'snw' not in vk:
+            style += " border: 3px solid black; font-weight: 900;"
     elif is_target: 
         style += " outline: 3px solid yellow; z-index: 5; position: relative;"
     
@@ -187,10 +185,16 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
     is_precip = 'pcp' in vk
     is_snow = any(x in vk for x in ['snw', 'snd', 'snow'])
     
+    # Determine how many rows to render
+    # If mode is Daily Records, we only want 31 rows (days). Otherwise, 32 (days + summary).
+    row_count = 31 if mode == "Daily Records" else 32
+
     html = "<style>.climo-table { width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; color: black; } .climo-table th, .climo-table td { border: 1px solid #ccc; text-align: center; padding: 4px 0; font-weight: bold; } .climo-table th:not(.label-col) { width: 7.7%; } .climo-table thead th {background-color: #ddd !important;} .climo-table td:hover { outline: 3px solid #00ffff; z-index: 10; cursor: help; } .label-col { width: 60px; background-color: #ddd !important; } .summary-row { background-color: #eee; border-top: 2px solid black; }</style><table class='climo-table'><thead><tr><th class='label-col'>Day</th>" + "".join(f"<th>{m}</th>" for m in months) + "</tr></thead><tbody>"
     
-    for d in range(32):
-        html += f"<tr class='{'summary-row' if d == 31 else ''}'><td class='label-col'>{'Avg/Sum' if d == 31 else d+1}</td>"
+    # Use row_count to control the loop
+    for d in range(row_count):
+        is_summary_row = (d == 31)
+        html += f"<tr class='{'summary-row' if is_summary_row else ''}'><td class='label-col'>{'Avg/Sum' if is_summary_row else d+1}</td>"
         for m in range(12):
             val = v_grid[d][m]
             if val in [999.0, -999.0]: 
@@ -198,20 +202,18 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
                 
             is_target = (d == yest.day-1 and m == yest.month-1) if mode in ["YTD Observations", "Departures"] else (d == local_now.day-1 and m == local_now.month-1)
             
-            # --- STRICT DECIMAL LOGIC ---
             if val == 0.001: 
                 disp = "Trace"
             elif is_precip:
-                disp = f"{val:.2f}" # 2 decimals
+                disp = f"{val:.2f}"
             elif is_snow:
-                disp = f"{val:.1f}" # 1 decimal
+                disp = f"{val:.1f}"
             else:
-                disp = f"{int(round(val))}" # Whole numbers
+                disp = f"{int(round(val))}"
                 
             html += f"<td title='{i_grid[d][m]}' style='{get_style(val, var_key, mode, n_grid[d][m], is_target, v_grid)}'>{disp}</td>"
         html += "</tr>"
     return html + "</table>"
-
 # --- UI ---
 st.set_page_config(page_title="NWS Climate Hub", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""<style>[data-testid="stSidebar"] { min-width: 450px; max-width: 450px; } [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.5rem; } [data-testid="stSidebar"] hr { margin-top: 10px; margin-bottom: 10px; }</style>""", unsafe_allow_html=True)
