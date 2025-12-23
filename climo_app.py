@@ -154,10 +154,10 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
     html = """
     <style>
         .scroll-container { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; position: relative; }
-        .climo-table { min-width: 900px; width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+        .climo-table { min-width: 900px; width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; }
         .climo-table th, .climo-table td { border: 1px solid #ccc; text-align: center; padding: 10px 2px; font-weight: bold; }
-        .sticky-col { position: sticky; left: 0; background-color: #eee !important; z-index: 2; width: 45px; border-right: 2px solid #666 !important; }
-        .climo-table thead th { background-color: #ddd !important; }
+        .sticky-col { position: sticky; left: 0; background-color: #ddd !important; z-index: 2; width: 45px; border-right: 2px solid #666 !important; font-color: black; }
+        .climo-table thead th { background-color: #ddd !important; font-color: black; }
     </style>
     <div class="scroll-container">
     <table class='climo-table'><thead><tr><th class='sticky-col'>Day</th>""" + "".join(f"<th>{m}</th>" for m in months) + "</tr></thead><tbody>"
@@ -182,7 +182,7 @@ st.markdown("""
     <style>
     [data-testid="stSidebar"] { min-width: 250px; max-width: 80vw; }
     .main .block-container { padding: 1rem !important; }
-    .summary-card { background-color: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 5px solid #007bff; margin-bottom: 15px; font-size: 14px; }
+    .summary-card { background-color: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 5px solid #007bff; margin-bottom: 15px; font-size: 14px; font-color: black; }
     .summary-item { display: inline-block; margin-right: 15px; white-space: nowrap; }
     h1 { font-size: 1.8rem !important; margin-bottom: 0.2rem !important; }
     </style>
