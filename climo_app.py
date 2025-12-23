@@ -26,7 +26,7 @@ US_STATES = ["AK", "AL", "AR", "AZ", "CA", "CO", "CT", "DC", "DE", "FL", "GA",
              "NV", "NY", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", 
              "UT", "VA", "VT", "WA", "WI", "WV", "WY"]
 
-# --- DATA FETCHING UTILITIES ---
+# --- DATA UTILITIES ---
 @st.cache_data(ttl=3600)
 def query_acis(params, endpoint="StnData"):
     inputdata = json.dumps(params).encode("utf-8")
@@ -58,7 +58,6 @@ def get_stations_by_state(state_code):
     if not df.empty: df['display_name'] = df.apply(lambda x: f"{x['name']} ({x['sid']})", axis=1)
     return df
 
-# --- SUMMARY & GRIDS ---
 def get_sidebar_summary(sid, mode, target_date):
     date_str = target_date.strftime("%Y%m%d")
     summary = []
@@ -80,12 +79,10 @@ def get_sidebar_summary(sid, mode, target_date):
                     summary.append({"label": info['title'], "val": v, "year": yr})
         return summary
     else:
-        # Simplified Normals/YTD/Departures logic
         config = cf.elems_avg if mode == "Normals" else (cf.elems_ytd if mode == "YTD Observations" else cf.elems_dep)
         elems = [{"name": e['aname'], "normal": ("1" if mode == "Normals" else "departure")} for e in config.values()]
         if mode == "YTD Observations":
-            elems = [{"name": e['aname'], "duration": "ytd", "reduce": "sum"} if 'pcpn' in e['aname'].lower() or 'snow' in e['aname'].lower() else {"name": e['aname']} for e in config.values()]
-        
+            elems = [{"name": e['aname'], "duration": "ytd", "reduce": "sum"} if 'pcp' in e['aname'].lower() or 'snw' in e['aname'].lower() else {"name": e['aname']} for e in config.values()]
         data = query_acis({"sid": sid, "sdate": date_str, "edate": date_str, "elems": elems})
         if 'data' in data and data['data']:
             for i, (key, info) in enumerate(config.items()):
@@ -103,7 +100,6 @@ def get_data_grids(sid, var_key, mode, local_now):
         elem = (cf.elems_avg[var_key] if mode == "Normals" else (cf.elems_ytd[var_key] if mode == "YTD Observations" else cf.elems_dep[var_key]))
         params = {"sid": sid, "sdate": f"{cur_year}0101", "edate": local_now.strftime("%Y%m%d"), "elems": [{"name": elem['aname'], "interval": "dly", "normal": ("1" if mode == "Normals" else ("departure" if mode == "Departures" else None))}]}
         idx, is_high = 1, True
-
     data = query_acis(params)
     v_grid, i_grid, n_grid = np.full((32, 12), -999.0 if is_high else 999.0), np.full((32, 12), "", dtype=object), np.zeros((32, 12), dtype=bool)
     if 'data' not in data: return None, None, None
@@ -123,7 +119,7 @@ def get_data_grids(sid, var_key, mode, local_now):
         if len(valid) > 0: v_grid[31, m] = np.sum(valid) if any(x in var_key for x in ['pcp', 'snw']) else np.mean(valid)
     return v_grid, i_grid, n_grid
 
-# --- STYLING & RENDERING ---
+# --- STYLING ---
 def get_style(val, var_key, mode, is_new, is_target):
     if val in [999.0, -999.0]: return "background-color: transparent;"
     if val == 0.001: return "background-color: #ffebcd; color: black;"
@@ -138,7 +134,7 @@ def get_style(val, var_key, mode, is_new, is_target):
         else: cmap, norm = cf.tcmap, mcolors.Normalize(-20, 110)
     rgba = cmap(norm(val))
     style = f"background-color: {mcolors.to_hex(rgba)};"
-    if is_new: style += " border: 3px solid black; font-weight: 900;"
+    if is_new: style += " border: 2px solid black; font-weight: 900;"
     elif is_target: style += " outline: 3px solid yellow; outline-offset: -3px; z-index: 5;"
     lum = (0.299*rgba[0] + 0.587*rgba[1] + 0.114*rgba[2])
     style += f" color: {'white' if lum < 0.4 else 'black'};"
@@ -146,32 +142,30 @@ def get_style(val, var_key, mode, is_new, is_target):
 
 def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    yest = local_now - timedelta(days=1)
-    vk = var_key.lower()
+    yest, vk = local_now - timedelta(days=1), var_key.lower()
     is_precip, is_snow = 'pcp' in vk, 'snw' in vk
     row_count = 31 if mode == "Daily Records" else 32
 
     html = """
     <style>
         .scroll-container { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; position: relative; }
-        .climo-table { min-width: 900px; width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; text-align: center; font-weight: bold; }
+        .climo-table { min-width: 900px; width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; }
+        .climo-table th, .climo-table td { border: 1px solid #ccc; text-align: center; padding: 10px 2px; font-weight: bold; position: relative; }
         
-        /* Tooltip behavior */
-        .climo-table td:hover { 
-            outline: 2px solid #000; 
-            cursor: help; 
-            filter: brightness(90%);
-        }
+        /* Force black text for labels */
+        .climo-table th, .climo-table td.sticky-col { color: black !important; }
+        .sticky-col { position: sticky; left: 0; background-color: #eee !important; z-index: 20; width: 45px; border-right: 2px solid #666 !important; }
+        .climo-table thead th { background-color: #ddd !important; z-index: 21; }
 
-        .climo-table th, .climo-table td.sticky-col { 
-            border: 1px solid #ccc; 
-            text-align: center; 
-            padding: 10px 2px; 
-            font-weight: bold; 
-            color: black !important; 
+        /* Floating Tooltip CSS */
+        .climo-table td .tooltiptext {
+            visibility: hidden; width: 100px; background-color: #333; color: #fff; text-align: center;
+            border-radius: 6px; padding: 5px; position: absolute; z-index: 100; bottom: 125%; left: 50%;
+            margin-left: -50px; opacity: 0; transition: opacity 0.2s; font-size: 11px; pointer-events: none;
         }
-        .sticky-col { position: sticky; left: 0; background-color: #eee !important; z-index: 10; width: 45px; border-right: 2px solid #666 !important; }
-        .climo-table thead th { background-color: #ddd !important; color: black !important; }
+        .climo-table td:hover .tooltiptext, .climo-table td:active .tooltiptext {
+            visibility: visible; opacity: 1;
+        }
     </style>
     <div class="scroll-container">
     <table class='climo-table'><thead><tr><th class='sticky-col'>Day</th>""" + "".join(f"<th>{m}</th>" for m in months) + "</tr></thead><tbody>"
@@ -181,47 +175,30 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
         html += f"<tr><td class='sticky-col'>{'Sum' if is_sum else d+1}</td>"
         for m in range(12):
             val = v_grid[d][m]
-            if val in [999.0, -999.0]: 
-                html += "<td>-</td>"
-                continue
-                
+            if val in [999.0, -999.0]: html += "<td>-</td>"; continue
             is_target = (d == yest.day-1 and m == yest.month-1) if mode != "Daily Records" else (d == local_now.day-1 and m == local_now.month-1)
+            disp = "T" if val == 0.001 else (f"{val:.2f}" if is_precip else (f"{val:.1f}" if is_snow else f"{int(round(val))}"))
             
-            # FORMAT DISPLAY VALUE
-            if val == 0.001:
-                disp = "T"
-            elif is_precip:
-                disp = f"{val:.2f}"
-            elif is_snow:
-                disp = f"{val:.1f}"
-            else:
-                disp = f"{int(round(val))}"
-            
-            # TOOLTIP TEXT (Year or Date)
-            # We pull this from i_grid which was populated in get_data_grids
-            tooltip_info = str(i_grid[d][m]) 
-            
-            # Add the 'title' attribute for the hover functionality
-            html += f"<td title='{tooltip_info}' style='{get_style(val, var_key, mode, n_grid[d][m], is_target)}'>{disp}</td>"
-            
+            # Add tooltip span inside cell
+            tip = str(i_grid[d][m])
+            html += f"<td style='{get_style(val, var_key, mode, n_grid[d][m], is_target)}'>{disp}<span class='tooltiptext'>{tip}</span></td>"
         html += "</tr>"
     return html + "</table></div>"
 
-# --- MAIN PAGE SETUP ---
+# --- PAGE CONFIG ---
 st.set_page_config(page_title="NWS Climate Hub", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS to prevent sidebar from cutting off main content
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { min-width: 250px; max-width: 80vw; }
     .main .block-container { padding: 1rem !important; }
-    .summary-card { background-color: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 5px solid #007bff; margin-bottom: 15px; font-size: 14px; color: black; }
-    .summary-item { display: inline-block; margin-right: 15px; white-space: nowrap; }
-    h1 { font-size: 1.8rem !important; margin-bottom: 0.2rem !important; }
+    .summary-card { background-color: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 5px solid #007bff; margin-bottom: 15px; font-size: 14px; color: black !important; }
+    .summary-item { display: inline-block; margin-right: 15px; white-space: nowrap; color: black !important; }
+    h1 { font-size: 1.8rem !important; color: inherit; }
     </style>
     """, unsafe_allow_html=True)
 
-# Sidebar
+# Sidebar UI
 state_sel = st.sidebar.selectbox("State", US_STATES, index=US_STATES.index("IL"))
 df_stations = get_stations_by_state(state_sel)
 site_disp = st.sidebar.selectbox("Station", df_stations['display_name'].tolist()) if not df_stations.empty else st.stop()
@@ -232,11 +209,10 @@ friendly_map = {info['title']: key for key, info in elem_dict.items()}
 selected_friendly = st.sidebar.selectbox("Variable", list(friendly_map.keys()))
 var_key = friendly_map[selected_friendly]
 
-# Header
+# Header & Data
 st.title(selected_site['name'])
-st.caption(f"{selected_friendly} • Analysis Mode: {mode}")
+st.caption(f"{selected_friendly} • {mode}")
 
-# Fetch & Render
 local_now = get_local_now(state_sel)
 target_dt = (local_now - timedelta(days=1)) if mode != "Daily Records" else local_now
 summary = get_sidebar_summary(selected_site['sid'], mode, target_dt)
@@ -254,4 +230,4 @@ v, i, n = get_data_grids(selected_site['sid'], var_key, mode, local_now)
 
 if v is not None:
     st.markdown(render_html_table(v, i, n, var_key, mode, local_now), unsafe_allow_html=True)
-    st.info("Swipe left/right on the table to see all months.")
+    st.info("Desktop: Hover for year • Mobile: Tap cell for year")
