@@ -1,6 +1,6 @@
 import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt # Added for access to cm
+import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import json
 import urllib.request
@@ -65,15 +65,12 @@ def get_stations_by_state(state_code):
 # --- DATA FETCHING ---
 def get_sidebar_summary(sid, mode, target_date):
     date_str = target_date.strftime("%Y%m%d")
-    jan_1st = target_date.strftime("%Y0101")
     summary = []
 
-    # --- 1. DAILY RECORDS (POR) ---
     if mode == "Daily Records":
         config = cf.elems_rec
         por_params = {"sid": sid, "sdate": "por", "edate": "por", "elems": ["maxt", "mint", "pcpn", "snow", "avgt"]}
         por_data = query_acis(por_params)
-        
         if 'data' in por_data:
             target_mmdd = target_date.strftime("%m-%d")
             for i, (key, info) in enumerate(config.items()):
@@ -91,50 +88,26 @@ def get_sidebar_summary(sid, mode, target_date):
                     summary.append({"label": info['title'], "val": v, "year": yr, "unit": info['unit']})
         return summary
 
-    # --- 2. YTD OBSERVATIONS (Correct Summation) ---
     elif mode == "YTD Observations":
         config = cf.elems_ytd
         for key, info in config.items():
             aname = info['aname'].lower()
-            
-            # Use 'sum' reduction for precip and snow over the date range
             if 'pcpn' in aname or 'snow' in aname:
-                p = {
-                    "sid": sid, 
-                    "sdate": date_str, 
-                    "edate": date_str, 
-                    "elems": [{"name": info['aname'], "duration": "ytd", "reduce": "sum"}]
-                }
+                p = {"sid": sid, "sdate": date_str, "edate": date_str, "elems": [{"name": info['aname'], "duration": "ytd", "reduce": "sum"}]}
             else:
-                # Use current day value for temperatures
-                p = {
-                    "sid": sid, 
-                    "sdate": date_str, 
-                    "edate": date_str, 
-                    "elems": [{"name": info['aname']}]
-                }
-            
+                p = {"sid": sid, "sdate": date_str, "edate": date_str, "elems": [{"name": info['aname']}]}
             res = query_acis(p)
-            
-            print(res['data'])
-            # ACIS range queries with reduction return the sum in the first (and only) row
             if 'data' in res and len(res['data']) > 0:
                 val = res['data'][0][1] 
                 if val not in ["M", "S", "A"]:
-                    summary.append({
-                        "label": info['title'], 
-                        "val": float(val) if val != "T" else 0.001, 
-                        "unit": info.get('unit', 'degrees')
-                    })
+                    summary.append({"label": info['title'], "val": float(val) if val != "T" else 0.001, "unit": info.get('unit', 'degrees')})
         return summary
 
-    # --- 3. NORMALS & DEPARTURES ---
     else:
         if mode == "Normals":
             config, elems = cf.elems_avg, [{"name": e['aname'], "normal": "1"} for e in cf.elems_avg.values()]
         else: # Departures
             config, elems = cf.elems_dep, [{"name": e['aname'], "normal": "departure"} for e in cf.elems_dep.values()]
-        
         data = query_acis({"sid": sid, "sdate": date_str, "edate": date_str, "elems": elems})
         if 'data' in data and data['data']:
             row = data['data'][0]
@@ -142,13 +115,8 @@ def get_sidebar_summary(sid, mode, target_date):
                 try:
                     val = row[i+1]
                     if val not in ["M", "S", "A"]:
-                        summary.append({
-                            "label": info['title'], 
-                            "val": float(val) if val != "T" else 0.001, 
-                            "unit": info.get('unit', 'degrees')
-                        })
+                        summary.append({"label": info['title'], "val": float(val) if val != "T" else 0.001, "unit": info.get('unit', 'degrees')})
                 except: continue
-                
     return summary
 
 def get_data_grids(sid, var_key, mode, local_now):
@@ -187,47 +155,27 @@ def get_data_grids(sid, var_key, mode, local_now):
         if len(valid) > 0: v_grid[31, m] = np.sum(valid) if any(x in var_key for x in ['pcp', 'snw']) else np.mean(valid)
     return v_grid, i_grid, n_grid
 
-# --- STYLING & PAGE RENDERING ---
+# --- STYLING & RENDERING ---
 
 def get_style(val, var_key, mode, is_new, is_target, v_grid):
     if val in [999.0, -999.0]: return "background-color: transparent; color: black;"
-    if val == 0.001: return "background-color: #ffebcd; color: black;" # Trace (Wheat)
-    
+    if val == 0.001: return "background-color: #ffebcd; color: black;"
     vk = var_key.lower()
-    
-    # 1. Handle Departures (Anomalies) - Use Diverging Color Maps
     if mode == "Departures":
-        if 'pcp' in vk:
-            cmap, norm = cf.brbgcmap, mcolors.Normalize(-1.5, 1.5)
-        elif 'snw' in vk:
-            cmap, norm = cf.puorcmap, mcolors.Normalize(-5, 5)
-        else:
-            cmap, norm = cf.rdburcmap, mcolors.Normalize(-20, 20)
-            
-    # 2. Handle Observations/Records/Normals - Use Greens and Blues
+        if 'pcp' in vk: cmap, norm = cf.brbgcmap, mcolors.Normalize(-1.5, 1.5)
+        elif 'snw' in vk: cmap, norm = cf.puorcmap, mcolors.Normalize(-5, 5)
+        else: cmap, norm = cf.rdburcmap, mcolors.Normalize(-20, 20)
     else:
-        if 'pcp' in vk:
-            # Sequential Green for Precipitation
-            cmap, norm = cf.qacmap, mcolors.Normalize(0, 50.0)
-            #norm = mcolors.Normalize(0, 2.0) # min 0.5 to prevent washout
-        elif 'snw' in vk:
-            # Sequential Blue for Snow
-            cmap, norm = cf.sacmap, mcolors.Normalize(0, 120.0)
-            #norm = mcolors.Normalize(0, 6.0) # min 2.0 to prevent washout
-        else:
-            # Standard Temperature Map
-            cmap, norm = cf.tcmap, mcolors.Normalize(-60, 120)
-            
+        if 'pcp' in vk: cmap, norm = cf.qacmap, mcolors.Normalize(0, 50.0)
+        elif 'snw' in vk: cmap, norm = cf.sacmap, mcolors.Normalize(0, 120.0)
+        else: cmap, norm = cf.tcmap, mcolors.Normalize(-60, 120)
     rgba = cmap(norm(val))
     style = f"background-color: {mcolors.to_hex(rgba)};"
-    
     if is_new: 
         if ('snw' in vk and val > 0.0) or 'snw' not in vk:
-            style += " border: 3px solid black; font-weight: 900;"
+            style += " text-decoration: underline; font-weight: 900; font-size: 1.1em; border: 2px solid black;"
     elif is_target: 
         style += " outline: 3px solid yellow; z-index: 5; position: relative;"
-    
-    # Text contrast check for readability
     lum = (0.299*rgba[0] + 0.587*rgba[1] + 0.114*rgba[2])
     style += f" color: {'white' if lum < 0.4 else 'black'};"
     return style
@@ -238,56 +186,63 @@ def render_html_table(v_grid, i_grid, n_grid, var_key, mode, local_now):
     vk = var_key.lower()
     is_precip = 'pcp' in vk
     is_snow = any(x in vk for x in ['snw', 'snd', 'snow'])
-    
-    # Determine how many rows to render
-    # If mode is Daily Records, we only want 31 rows (days). Otherwise, 32 (days + summary).
     row_count = 31 if mode == "Daily Records" else 32
 
-    html = "<style>.climo-table { width: 100%; border-collapse: collapse; font-size: 18px; table-layout: fixed; color: black; } .climo-table th, .climo-table td { border: 1px solid #ccc; text-align: center; padding: 4px 0; font-weight: bold; } .climo-table th:not(.label-col) { width: 7.7%; } .climo-table thead th {background-color: #ddd !important;} .climo-table td:hover { outline: 3px solid #00ffff; z-index: 10; cursor: help; } .label-col { width: 60px; background-color: #ddd !important; } .summary-row { background-color: #eee; border-top: 2px solid black; }</style><table class='climo-table'><thead><tr><th class='label-col'>Day</th>" + "".join(f"<th>{m}</th>" for m in months) + "</tr></thead><tbody>"
+    html = """
+    <div class="table-container">
+    <style>
+        .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid #ccc; }
+        .climo-table { width: 100%; min-width: 800px; border-collapse: separate; border-spacing: 0; font-size: 16px; table-layout: fixed; color: black; }
+        .climo-table th, .climo-table td { border-right: 1px solid #ccc; border-bottom: 1px solid #ccc; text-align: center; padding: 6px 0; font-weight: bold; }
+        .label-col { width: 50px; background-color: #ddd !important; position: sticky; left: 0; z-index: 2; border-right: 2px solid #666 !important; }
+        thead th { position: sticky; top: 0; background-color: #ddd !important; z-index: 3; }
+        thead th.label-col { z-index: 4; }
+        .summary-row td { background-color: #eee; border-top: 2px solid black; }
+        @media (max-width: 640px) { .climo-table { font-size: 13px; } }
+    </style>
+    <table class='climo-table'><thead><tr><th class='label-col'>Day</th>""" + "".join(f"<th>{m}</th>" for m in months) + "</tr></thead><tbody>"
     
-    # Use row_count to control the loop
     for d in range(row_count):
         is_summary_row = (d == 31)
-        html += f"<tr class='{'summary-row' if is_summary_row else ''}'><td class='label-col'>{'Avg/Sum' if is_summary_row else d+1}</td>"
+        html += f"<tr class='{'summary-row' if is_summary_row else ''}'><td class='label-col'>{'Avg' if is_summary_row else d+1}</td>"
         for m in range(12):
             val = v_grid[d][m]
             if val in [999.0, -999.0]: 
                 html += "<td>-</td>"; continue
-                
             is_target = (d == yest.day-1 and m == yest.month-1) if mode in ["YTD Observations", "Departures"] else (d == local_now.day-1 and m == local_now.month-1)
-            
-            if val == 0.001: 
-                disp = "Trace"
-            elif is_precip:
-                disp = f"{val:.2f}"
-            elif is_snow:
-                disp = f"{val:.1f}"
-            else:
-                disp = f"{int(round(val))}"
-                
+            disp = "T" if val == 0.001 else (f"{val:.2f}" if is_precip else (f"{val:.1f}" if is_snow else f"{int(round(val))}"))
             html += f"<td title='{i_grid[d][m]}' style='{get_style(val, var_key, mode, n_grid[d][m], is_target, v_grid)}'>{disp}</td>"
         html += "</tr>"
-    return html + "</table>"
-# --- UI ---
-st.set_page_config(page_title="NWS Climate Hub", layout="wide", initial_sidebar_state="expanded")
-st.markdown("""<style>[data-testid="stSidebar"] { min-width: 450px; max-width: 450px; } [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.5rem; } [data-testid="stSidebar"] hr { margin-top: 10px; margin-bottom: 10px; }</style>""", unsafe_allow_html=True)
+    return html + "</table></div>"
 
-st.sidebar.header("Step 1: Select State")
+# --- PAGE CONFIG & MAIN UI ---
+st.set_page_config(page_title="NWS Climate Hub", layout="wide", initial_sidebar_state="auto")
+
+# Global CSS for Sidebar and UI Elements
+st.markdown("""
+<style>
+    [data-testid="stSidebar"] { min-width: 300px; max-width: 100vw; }
+    .summary-container { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-start; margin-top: 10px; }
+    .summary-card { background-color: #f1f3f4; border-left: 5px solid #4A90E2; border-radius: 6px; padding: 10px; flex: 1 1 calc(45% - 8px); min-width: 120px; box-shadow: 1px 1px 3px rgba(0,0,0,0.1); }
+    .summary-label { font-size: 0.7rem; color: #666; font-weight: bold; display: block; text-transform: uppercase; }
+    .summary-value { font-size: 1.1rem; font-weight: 900; color: #111; }
+</style>
+""", unsafe_allow_html=True)
+
+st.sidebar.header("1. Select Station")
 state_sel = st.sidebar.selectbox("State", US_STATES, index=US_STATES.index("IL"))
 
 with st.spinner("Finding stations..."):
     df_stations = get_stations_by_state(state_sel)
 
 if not df_stations.empty:
-    st.sidebar.header("Step 2: Choose Location")
-    site_disp = st.sidebar.selectbox("Select Station", df_stations['display_name'].tolist())
+    site_disp = st.sidebar.selectbox("Location", df_stations['display_name'].tolist())
     selected_site = df_stations[df_stations['display_name'] == site_disp].iloc[0]
     sid = selected_site['sid']
 else:
     st.sidebar.error("No sites found."); st.stop()
 
-mode = st.sidebar.radio("Category", ["Daily Records", "Normals", "YTD Observations", "Departures"])
-st.sidebar.markdown("---")
+mode = st.sidebar.selectbox("Category", ["Daily Records", "Normals", "YTD Observations", "Departures"])
 
 elem_dict = {"Daily Records": cf.elems_rec, "Normals": cf.elems_avg, "YTD Observations": cf.elems_ytd, "Departures": cf.elems_dep}[mode]
 friendly_map = {info['title']: key for key, info in elem_dict.items()}
@@ -300,26 +255,18 @@ with st.spinner("Processing..."):
     summary = get_sidebar_summary(sid, mode, target_dt)
     
     st.sidebar.markdown(f"--- \n## {target_dt.strftime('%b %d')} Summary")
+    summary_html = '<div class="summary-container">'
     for itm in summary:
         lbl = itm['label'].lower()
-        if itm['val'] == 0.001: 
-            val_s, u = "Trace", ""
-        else:
-            # Sidebar formatting consistency
-            if "precip" in lbl:
-                val_s, u = f"{itm['val']:.2f}", '"'
-            elif "snow" in lbl:
-                val_s, u = f"{itm['val']:.1f}", '"'
-            else:
-                val_s, u = f"{int(round(itm['val']))}", "°F"
-        
-        yr_str = f" ({itm['year']})" if itm.get('year') else ""
-        st.sidebar.markdown(f"<div style='white-space: nowrap;'><b>{itm['label']}:</b> {val_s}{u}{yr_str}</div>", unsafe_allow_html=True)
+        val_s, u = ("Trace", "") if itm['val'] == 0.001 else ((f"{itm['val']:.2f}", '"') if "precip" in lbl else ((f"{itm['val']:.1f}", '"') if "snow" in lbl else (f"{int(round(itm['val']))}", "°F")))
+        yr_str = f"<br><span style='font-size: 0.7rem; color: #888;'>{itm['year']}</span>" if itm.get('year') else ""
+        summary_html += f'<div class="summary-card"><span class="summary-label">{itm["label"]}</span><span class="summary-value">{val_s}{u}</span>{yr_str}</div>'
+    summary_html += '</div>'
+    st.sidebar.markdown(summary_html, unsafe_allow_html=True)
 
     v, i, n = get_data_grids(sid, var_key, mode, local_now)
     if v is not None:
-        title_suffix = f" (records since {selected_site['por_display']})" if mode == "Daily Records" else ""
+        title_suffix = f" (since {selected_site['por_display']})" if mode == "Daily Records" else ""
         st.subheader(f"{selected_friendly} — {selected_site['name']}{title_suffix}")
-        
-        
+        st.caption("Swipe left/right to view all months. Underlined cells = Record set this year.")
         st.markdown(render_html_table(v, i, n, var_key, mode, local_now), unsafe_allow_html=True)
